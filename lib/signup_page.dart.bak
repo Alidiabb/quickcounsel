@@ -1,0 +1,435 @@
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:quickcounsel/components/my_textfield.dart';
+import 'package:http/http.dart' as http;
+
+enum UserRole { client, lawyer }
+
+enum Gender { male, female }
+
+class SignupPage extends StatefulWidget {
+  const SignupPage({super.key});
+
+  @override
+  State<SignupPage> createState() => _SignupPageState();
+}
+
+class _SignupPageState extends State<SignupPage> {
+  // basic controllers
+  final nameController = TextEditingController();
+  final emailController = TextEditingController();
+  final passwordController = TextEditingController();
+
+  // lawyer controllers
+  final barNumberController = TextEditingController();
+
+  UserRole selectedRole = UserRole.client;
+  Gender? selectedGender;
+
+  DateTime? dateOfBirth;
+  DateTime? memberSince;
+
+  // specialisations (max 2)
+  bool spPersonalStatus = false;
+  bool spLaborSocial = false;
+  bool spFinancialTax = false;
+  bool spRealEstateCivil = false;
+  bool spCriminal = false;
+  bool spCompanies = false;
+
+  bool get isLawyer => selectedRole == UserRole.lawyer;
+
+  int get selectedSpecsCount {
+    int c = 0;
+    if (spPersonalStatus) c++;
+    if (spLaborSocial) c++;
+    if (spFinancialTax) c++;
+    if (spRealEstateCivil) c++;
+    if (spCriminal) c++;
+    if (spCompanies) c++;
+    return c;
+  }
+
+  void showMessage(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  void toggleSpec(bool currentValue, void Function(bool) setValue) {
+    // allow turning OFF always
+    if (currentValue == true) {
+      setState(() => setValue(false));
+      return;
+    }
+
+    // turning ON: enforce max 2
+    if (selectedSpecsCount >= 2) {
+      showMessage('You can select at most 2 specialisations');
+      return;
+    }
+
+    setState(() => setValue(true));
+  }
+
+  String formatDate(DateTime? d) {
+    if (d == null) return 'Select date';
+    final y = d.year.toString().padLeft(4, '0');
+    final m = d.month.toString().padLeft(2, '0');
+    final day = d.day.toString().padLeft(2, '0');
+    return '$y-$m-$day';
+  }
+
+  Future<void> pickDateOfBirth() async {
+    final now = DateTime.now();
+    final initial = dateOfBirth ?? DateTime(now.year - 18, now.month, now.day);
+
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(1900),
+      lastDate: now,
+    );
+
+    if (picked != null) {
+      setState(() => dateOfBirth = picked);
+    }
+  }
+
+  Future<void> pickMemberSince() async {
+    final now = DateTime.now();
+    final initial = memberSince ?? DateTime(now.year - 1, now.month, now.day);
+
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(1950),
+      lastDate: now,
+    );
+
+    if (picked != null) {
+      setState(() => memberSince = picked);
+    }
+  }
+
+  List<String> selectedSpecs() {
+    final specs = <String>[];
+    if (spPersonalStatus) specs.add('قانون الأحوال الشخصيّة');
+    if (spLaborSocial) specs.add('قانون العمل و الضمان الإجتماعي');
+    if (spFinancialTax) specs.add('القانون المالي و الضريبي');
+    if (spRealEstateCivil) specs.add('القانون العقاري و التنظيم المدني');
+    if (spCriminal) specs.add('القانون الجزائي');
+    if (spCompanies) specs.add('قانون الشركات');
+    return specs;
+  }
+
+  Future<void> signUp() async {
+    final name = nameController.text.trim();
+    final email = emailController.text.trim();
+    final password = passwordController.text.trim();
+
+    if (name.isEmpty || email.isEmpty || password.isEmpty) {
+      showMessage("Please fill name, email and password");
+      return;
+    }
+
+    if (dateOfBirth == null) {
+      showMessage("Please select date of birth");
+      return;
+    }
+
+    if (selectedGender == null) {
+      showMessage("Please select gender");
+      return;
+    }
+
+    final role = selectedRole == UserRole.client ? "client" : "lawyer";
+    final gender = selectedGender == Gender.male ? "male" : "female";
+
+    final body = <String, dynamic>{
+      "name": name,
+      "email": email,
+      "password": password,
+      "date_of_birth": formatDate(dateOfBirth), // YYYY-MM-DD
+      "gender": gender,
+      "role": role,
+    };
+
+    if (role == "lawyer") {
+      final bar = barNumberController.text.trim();
+
+      if (bar.isEmpty) {
+        showMessage("Please enter bar number");
+        return;
+      }
+      if (memberSince == null) {
+        showMessage("Please select member since date");
+        return;
+      }
+
+      final specs = selectedSpecs();
+      if (specs.isEmpty) {
+        showMessage("Please select at least 1 specialisation");
+        return;
+      }
+
+      body["bar_number"] = bar;
+      body["member_since"] = formatDate(memberSince); // YYYY-MM-DD
+      body["specialization_1"] = specs[0];
+      body["specialization_2"] = specs.length > 1 ? specs[1] : null;
+    }
+
+    try {
+      final response = await http.post(
+        Uri.parse("http://localhost:3000/register"), // Flutter Web
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode(body),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 201) {
+        showMessage("Account created successfully");
+        Navigator.pop(context); // back to login
+      } else {
+        showMessage(data["message"] ?? "Signup failed");
+      }
+    } catch (e) {
+      showMessage("Cannot connect to server");
+    }
+  }
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    emailController.dispose();
+    passwordController.dispose();
+    barNumberController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.grey[300],
+      body: SingleChildScrollView(
+        child: SafeArea(
+          child: Center(
+            child: Column(
+              children: [
+                const SizedBox(height: 50),
+                const Icon(Icons.lock, size: 100),
+                const SizedBox(height: 50),
+                Text(
+                  "Lets get you on board",
+                  style: TextStyle(color: Colors.grey[700], fontSize: 16),
+                ),
+                const SizedBox(height: 50),
+
+                // basic fields
+                MyTextfield(
+                  controller: nameController,
+                  hintText: 'enter your name',
+                  obscureText: false,
+                ),
+                const SizedBox(height: 20),
+                MyTextfield(
+                  controller: emailController,
+                  hintText: 'enter your email',
+                  obscureText: false,
+                ),
+                const SizedBox(height: 20),
+                MyTextfield(
+                  controller: passwordController,
+                  hintText: 'enter a password',
+                  obscureText: true,
+                ),
+
+                const SizedBox(height: 20),
+
+                // date of birth picker
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 25),
+                  child: Row(
+                    children: [
+                      Text(
+                        'Date of birth: ',
+                        style: TextStyle(color: Colors.grey[700], fontSize: 14),
+                      ),
+                      const SizedBox(width: 10),
+                      ElevatedButton(
+                        onPressed: pickDateOfBirth,
+                        child: Text(formatDate(dateOfBirth)),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                // gender selection
+                Text(
+                  'Gender:',
+                  style: TextStyle(color: Colors.grey[700], fontSize: 14),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Radio<Gender>(
+                      value: Gender.male,
+                      groupValue: selectedGender,
+                      onChanged: (value) {
+                        setState(() => selectedGender = value);
+                      },
+                    ),
+                    const Text('Male'),
+                    const SizedBox(width: 20),
+                    Radio<Gender>(
+                      value: Gender.female,
+                      groupValue: selectedGender,
+                      onChanged: (value) {
+                        setState(() => selectedGender = value);
+                      },
+                    ),
+                    const Text('Female'),
+                  ],
+                ),
+
+                const SizedBox(height: 30),
+
+                // role selection
+                Text(
+                  'Sign up as:',
+                  style: TextStyle(color: Colors.grey[700], fontSize: 14),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Radio<UserRole>(
+                      value: UserRole.client,
+                      groupValue: selectedRole,
+                      onChanged: (value) {
+                        setState(() => selectedRole = value!);
+                      },
+                    ),
+                    const Text('Client'),
+                    const SizedBox(width: 20),
+                    Radio<UserRole>(
+                      value: UserRole.lawyer,
+                      groupValue: selectedRole,
+                      onChanged: (value) {
+                        setState(() => selectedRole = value!);
+                      },
+                    ),
+                    const Text('Lawyer'),
+                  ],
+                ),
+
+                const SizedBox(height: 20),
+
+                // lawyer extra fields
+                if (isLawyer) ...[
+                  MyTextfield(
+                    controller: barNumberController,
+                    hintText: 'Bar number',
+                    obscureText: false,
+                  ),
+                  const SizedBox(height: 20),
+
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 25),
+                    child: Row(
+                      children: [
+                        Text(
+                          'Member since: ',
+                          style: TextStyle(
+                            color: Colors.grey[700],
+                            fontSize: 14,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        ElevatedButton(
+                          onPressed: pickMemberSince,
+                          child: Text(formatDate(memberSince)),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  Text(
+                    'Specialisation(s) (max 2):',
+                    style: TextStyle(color: Colors.grey[700], fontSize: 14),
+                  ),
+
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 25),
+                    child: Column(
+                      children: [
+                        CheckboxListTile(
+                          value: spPersonalStatus,
+                          onChanged: (_) => toggleSpec(
+                            spPersonalStatus,
+                            (v) => spPersonalStatus = v,
+                          ),
+                          title: const Text('قانون الأحوال الشخصيّة'),
+                          controlAffinity: ListTileControlAffinity.leading,
+                        ),
+                        CheckboxListTile(
+                          value: spLaborSocial,
+                          onChanged: (_) => toggleSpec(
+                            spLaborSocial,
+                            (v) => spLaborSocial = v,
+                          ),
+                          title: const Text('قانون العمل و الضمان الإجتماعي'),
+                          controlAffinity: ListTileControlAffinity.leading,
+                        ),
+                        CheckboxListTile(
+                          value: spFinancialTax,
+                          onChanged: (_) => toggleSpec(
+                            spFinancialTax,
+                            (v) => spFinancialTax = v,
+                          ),
+                          title: const Text('القانون المالي و الضريبي'),
+                          controlAffinity: ListTileControlAffinity.leading,
+                        ),
+                        CheckboxListTile(
+                          value: spRealEstateCivil,
+                          onChanged: (_) => toggleSpec(
+                            spRealEstateCivil,
+                            (v) => spRealEstateCivil = v,
+                          ),
+                          title: const Text('القانون العقاري و التنظيم المدني'),
+                          controlAffinity: ListTileControlAffinity.leading,
+                        ),
+                        CheckboxListTile(
+                          value: spCriminal,
+                          onChanged: (_) =>
+                              toggleSpec(spCriminal, (v) => spCriminal = v),
+                          title: const Text('القانون الجزائي'),
+                          controlAffinity: ListTileControlAffinity.leading,
+                        ),
+                        CheckboxListTile(
+                          value: spCompanies,
+                          onChanged: (_) =>
+                              toggleSpec(spCompanies, (v) => spCompanies = v),
+                          title: const Text('قانون الشركات'),
+                          controlAffinity: ListTileControlAffinity.leading,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+
+                const SizedBox(height: 30),
+
+                ElevatedButton(onPressed: signUp, child: const Text('Sign Up')),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

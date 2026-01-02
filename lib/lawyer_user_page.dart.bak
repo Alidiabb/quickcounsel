@@ -1,0 +1,300 @@
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+
+class LawyerUserPage extends StatefulWidget {
+  final int lawyerUserId;
+
+  const LawyerUserPage({super.key, required this.lawyerUserId});
+
+  @override
+  State<LawyerUserPage> createState() => _LawyerUserPageState();
+}
+
+class _LawyerUserPageState extends State<LawyerUserPage> {
+  final String baseUrl = "http://localhost:3000"; // Flutter Web
+
+  final descriptionController = TextEditingController();
+  final caseTitleController = TextEditingController();
+  final caseDetailsController = TextEditingController();
+
+  bool loadingProfile = false;
+  bool loadingCases = false;
+
+  Map<String, dynamic>? profile;
+  List cases = [];
+
+  void showMessage(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    fetchProfile();
+    fetchCases();
+  }
+
+  Future<void> fetchProfile() async {
+    setState(() => loadingProfile = true);
+
+    try {
+      final url = Uri.parse(
+        "$baseUrl/lawyer/profile?user_id=${widget.lawyerUserId}",
+      );
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          profile = data;
+          descriptionController.text = (data["description"] ?? "").toString();
+        });
+      } else {
+        final data = jsonDecode(response.body);
+        showMessage(data["message"] ?? "Failed to load profile");
+      }
+    } catch (e) {
+      showMessage("Cannot connect to server");
+    } finally {
+      setState(() => loadingProfile = false);
+    }
+  }
+
+  Future<void> saveDescription() async {
+    try {
+      final response = await http.put(
+        Uri.parse("$baseUrl/lawyer/description"),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          "user_id": widget.lawyerUserId,
+          "description": descriptionController.text.trim(),
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200) {
+        showMessage("Description saved");
+        fetchProfile();
+      } else {
+        showMessage(data["message"] ?? "Failed to save description");
+      }
+    } catch (e) {
+      showMessage("Cannot connect to server");
+    }
+  }
+
+  Future<void> fetchCases() async {
+    setState(() => loadingCases = true);
+
+    try {
+      final url = Uri.parse(
+        "$baseUrl/lawyer/cases?user_id=${widget.lawyerUserId}",
+      );
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        setState(() => cases = jsonDecode(response.body));
+      } else {
+        final data = jsonDecode(response.body);
+        showMessage(data["message"] ?? "Failed to load cases");
+      }
+    } catch (e) {
+      showMessage("Cannot connect to server");
+    } finally {
+      setState(() => loadingCases = false);
+    }
+  }
+
+  Future<void> addCase() async {
+    final title = caseTitleController.text.trim();
+    final details = caseDetailsController.text.trim();
+
+    if (title.isEmpty || details.isEmpty) {
+      showMessage("Please fill case title and details");
+      return;
+    }
+
+    try {
+      final response = await http.post(
+        Uri.parse("$baseUrl/lawyer/cases"),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          "lawyer_user_id": widget.lawyerUserId,
+          "title": title,
+          "details": details,
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 201) {
+        showMessage("Case added");
+        caseTitleController.clear();
+        caseDetailsController.clear();
+        fetchCases();
+      } else {
+        showMessage(data["message"] ?? "Failed to add case");
+      }
+    } catch (e) {
+      showMessage("Cannot connect to server");
+    }
+  }
+
+  String dateOnly(dynamic value) {
+    if (value == null) return "";
+    return value.toString().split("T").first;
+  }
+
+  @override
+  void dispose() {
+    descriptionController.dispose();
+    caseTitleController.dispose();
+    caseDetailsController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final lawyerName = profile?["name"]?.toString() ?? "Lawyer";
+
+    return Scaffold(
+      backgroundColor: Colors.grey[300],
+      appBar: AppBar(title: const Text("My Profile")),
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            children: [
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: loadingProfile
+                      ? const Center(child: CircularProgressIndicator())
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "Hello, $lawyerName",
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(profile?["email"]?.toString() ?? ""),
+                            const SizedBox(height: 8),
+                            Text(
+                              "Specializations: ${(profile?["specialization_1"] ?? "")} ${(profile?["specialization_2"] ?? "")}",
+                            ),
+                          ],
+                        ),
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        "Description",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: descriptionController,
+                        maxLines: 4,
+                        decoration: const InputDecoration(
+                          hintText: "Write a description about yourself...",
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      ElevatedButton(
+                        onPressed: saveDescription,
+                        child: const Text("Save Description"),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        "Past Cases",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+
+                      TextField(
+                        controller: caseTitleController,
+                        decoration: const InputDecoration(
+                          hintText: "Case title",
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+
+                      TextField(
+                        controller: caseDetailsController,
+                        maxLines: 3,
+                        decoration: const InputDecoration(
+                          hintText: "Case details",
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+
+                      ElevatedButton(
+                        onPressed: addCase,
+                        child: const Text("Add Case"),
+                      ),
+
+                      const SizedBox(height: 15),
+
+                      if (loadingCases)
+                        const Center(child: CircularProgressIndicator()),
+
+                      ListView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: cases.length,
+                        itemBuilder: (context, index) {
+                          final c = cases[index] as Map<String, dynamic>;
+                          return ListTile(
+                            title: Text(c["title"]?.toString() ?? ""),
+                            subtitle: Text(
+                              "${c["details"]?.toString() ?? ""}\n${dateOnly(c["created_at"])}",
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
